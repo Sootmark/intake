@@ -11,6 +11,7 @@ use zip::Archive;
 use crate::image::{self, Container, ImageSource};
 use crate::logical;
 use crate::protected::{self, Credentials, Locked, Scheme};
+use crate::tar::{self, TarSource};
 
 /// One file inside a source.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -99,6 +100,12 @@ pub fn open(path: &Path, credentials: &Credentials) -> io::Result<Box<dyn Source
     let head = read_head(path)?;
     if head.starts_with(ZIP_SIGNATURE) {
         return open_zip(path, name, credentials);
+    }
+    if tar::is_tar(&head) {
+        return Ok(Box::new(TarSource::open(path, name, false)?));
+    }
+    if common::gzip::is_gzip(&head) && tar::is_gzipped_tar(path) {
+        return Ok(Box::new(TarSource::open(path, name, true)?));
     }
     if logical::is_ad1(&head) {
         return Ok(Box::new(logical::Ad1Source::open(path, &head, name)?));

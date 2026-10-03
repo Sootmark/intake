@@ -330,7 +330,7 @@ pub fn read(
     match layout.kind {
         LayoutKind::Velociraptor => Some(velociraptor::read(&files)),
         LayoutKind::Kape => Some(kape::read(&files)),
-        LayoutKind::DiskImage | LayoutKind::Loose => None,
+        LayoutKind::DiskImage | LayoutKind::Acquire | LayoutKind::Uac | LayoutKind::Loose => None,
     }
 }
 

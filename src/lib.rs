@@ -16,6 +16,7 @@ mod path;
 mod preview;
 mod protected;
 mod source;
+mod tar;
 #[cfg(feature = "x509")]
 mod x509;
 

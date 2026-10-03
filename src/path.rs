@@ -11,6 +11,8 @@ use core::fmt;
 pub struct HostPath {
     drive: Option<char>,
     components: Vec<String>,
+    /// A Unix path (`/etc/passwd`) rather than a Windows one.
+    unix: bool,
 }
 
 /// Device prefixes Windows uses for raw volume access.
@@ -23,7 +25,24 @@ impl HostPath {
         Self {
             drive: drive.map(|d| d.to_ascii_uppercase()),
             components,
+            unix: false,
         }
+    }
+
+    /// A Unix path made of `components` (`["etc", "passwd"]` is `/etc/passwd`).
+    #[must_use]
+    pub fn unix(components: Vec<String>) -> Self {
+        Self {
+            drive: None,
+            components,
+            unix: true,
+        }
+    }
+
+    /// Whether this is a Unix path.
+    #[must_use]
+    pub const fn is_unix(&self) -> bool {
+        self.unix
     }
 
     /// Parse a Windows path: `C:\a\b`, `C:/a/b`, `\\.\C:\a`, `\\?\C:\a` or `\a\b`.
@@ -66,6 +85,9 @@ fn split_drive(path: &str) -> (Option<char>, &str) {
 
 impl fmt::Display for HostPath {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        if self.unix {
+            return write!(f, "/{}", self.components.join("/"));
+        }
         if let Some(drive) = self.drive {
             write!(f, "{drive}:")?;
         }

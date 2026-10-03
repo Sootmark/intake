@@ -1,6 +1,6 @@
 [package]
 name = "sootmark-intake"
-version = "0.5.2"
+version = "0.6.0"
 edition = "2021"
 rust-version = "1.80"
 description = "Evidence intake: read directories, zips, disk images (E01, VHDX, raw) and AD1 logical images, recognise KAPE and Velociraptor collections, detect which parser handles each file."
@@ -12,7 +12,7 @@ keywords = ["forensics", "dfir", "incident-response"]
 include = ["/src", "/README.md", "/LICENSE-APACHE", "/LICENSE-MIT"]
 
 [dependencies]
-common = { package = "sootmark-common", version = "0.3.4" }
+common = { package = "sootmark-common", version = "0.3.5" }
 model = { package = "sootmark-model", version = "0.1.4" }
 disk = { package = "sootmark-disk", version = "0.2.6" }
 ewf = { package = "sootmark-ewf", version = "0.1.3" }

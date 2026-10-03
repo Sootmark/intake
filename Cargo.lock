@@ -575,9 +575,9 @@ dependencies = [
 
 [[package]]
 name = "sootmark-common"
-version = "0.3.4"
+version = "0.3.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "30d935f7f3abeb2a66596f69d1e4fa8a7a9da04cfc5433527303adc477598fb8"
+checksum = "bafd4296b9b9d7da9946442ba093f0c53362ae32d0e8f9b6d8497902ca5c5307"
 
 [[package]]
 name = "sootmark-disk"
@@ -608,7 +608,7 @@ dependencies = [
 
 [[package]]
 name = "sootmark-intake"
-version = "0.5.2"
+version = "0.6.0"
 dependencies = [
  "base64ct",
  "proptest",

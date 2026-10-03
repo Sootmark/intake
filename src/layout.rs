@@ -17,6 +17,12 @@ pub enum LayoutKind {
     /// The volumes of a disk image: the system volume as `C/…`, others as
     /// `vol<slot>/…` with no drive letter (letters aren't stored on disk).
     DiskImage,
+    /// Fox-IT's acquire: Windows volumes under `fs/<letter>:/…` (older
+    /// versions: the system volume as `sysvol/…`).
+    Acquire,
+    /// UAC (Unix-like Artifacts Collector): host files under `[root]/…`,
+    /// command output under `live_response/`, the run in `uac.log`.
+    Uac,
     /// Anything else: loose files with no host paths.
     Loose,
 }
@@ -27,6 +33,8 @@ impl core::fmt::Display for LayoutKind {
             Self::Kape => "KAPE",
             Self::Velociraptor => "Velociraptor",
             Self::DiskImage => "disk image",
+            Self::Acquire => "acquire",
+            Self::Uac => "UAC",
             Self::Loose => "loose files",
         })
     }
@@ -88,6 +96,10 @@ const VELOCIRAPTOR_METADATA: [&str; 4] = [
     "log.json",
 ];
 const VELOCIRAPTOR_CLIENT_INFO: &str = "client_info.json";
+/// Where UAC keeps the host's own name.
+const UAC_HOSTNAME: &str = "live_response/system/hostname.txt";
+/// Top-level folders that belong to a layout, never a wrapping folder.
+const LAYOUT_FOLDERS: [&str; 5] = ["uploads", "fs", "sysvol", "[root]", "live_response"];
 /// Upper bound on metadata read for hints.
 const METADATA_LIMIT: usize = 1 << 20;
 
@@ -124,7 +136,26 @@ pub fn recognise(source: &dyn Source, entries: &[SourceEntry]) -> Layout {
             host_hint: metadata_hint.or(folder_hint),
         };
     }
-    let kind = if is_kape(&paths) {
+    if is_uac(&paths) {
+        let hostname = entries
+            .iter()
+            .find(|e| relative(e) == UAC_HOSTNAME)
+            .and_then(|e| source.head(e, 256).ok())
+            .map(|bytes| String::from_utf8_lossy(&bytes).trim().to_owned())
+            .filter(|name| !name.is_empty() && !name.contains(char::is_whitespace))
+            .map(|name| HostHint {
+                name,
+                source: HintSource::CollectorMetadata,
+            });
+        return Layout {
+            kind: LayoutKind::Uac,
+            root,
+            host_hint: hostname.or(folder_hint),
+        };
+    }
+    let kind = if is_acquire(&paths) {
+        LayoutKind::Acquire
+    } else if is_kape(&paths) {
         LayoutKind::Kape
     } else {
         LayoutKind::Loose
@@ -145,6 +176,8 @@ impl Layout {
             LayoutKind::Kape => kape_host_path(path),
             LayoutKind::Velociraptor => velociraptor_host_path(path),
             LayoutKind::DiskImage => disk_image_host_path(path),
+            LayoutKind::Acquire => acquire_host_path(path),
+            LayoutKind::Uac => uac_host_path(path),
             LayoutKind::Loose => None,
         }
     }
@@ -157,7 +190,7 @@ fn common_root(entries: &[SourceEntry]) -> Option<String> {
     let shared = entries
         .iter()
         .all(|e| e.path.split_once('/').is_some_and(|(top, _)| top == first));
-    let is_layout_folder = is_drive_folder(first) || first == "uploads";
+    let is_layout_folder = is_drive_folder(first) || LAYOUT_FOLDERS.contains(&first);
     (shared && !is_layout_folder).then(|| first.to_owned())
 }
 
@@ -195,6 +228,56 @@ fn disk_image_host_path(path: &str) -> Option<HostPath> {
         drive,
         rest.split('/').map(str::to_owned).collect(),
     ))
+}
+
+/// acquire: `fs/<letter>:/` (or `fs/<letter>/`) holding a Windows volume,
+/// or the older `sysvol/`.
+fn is_acquire(paths: &[String]) -> bool {
+    paths.iter().any(|path| {
+        let mut parts = path.split('/');
+        match (parts.next(), parts.next(), parts.next()) {
+            (Some("fs"), Some(volume), Some(top)) => {
+                acquire_drive(volume).is_some() && VOLUME_MARKERS.contains(&top)
+            }
+            (Some("sysvol"), Some(top), _) => VOLUME_MARKERS.contains(&top),
+            _ => false,
+        }
+    })
+}
+
+/// The drive letter of an acquire volume folder: `C:` or `c`.
+fn acquire_drive(volume: &str) -> Option<char> {
+    let letter = volume.strip_suffix(':').unwrap_or(volume);
+    is_drive_folder(letter)
+        .then(|| letter.chars().next())
+        .flatten()
+}
+
+/// `fs/C:/…` → `C:\…`; `sysvol/…` → the system volume, `C:\…`.
+fn acquire_host_path(path: &str) -> Option<HostPath> {
+    let components = |rest: &str| rest.split('/').map(str::to_owned).collect();
+    if let Some(rest) = path.strip_prefix("sysvol/") {
+        return Some(HostPath::new(Some('C'), components(rest)));
+    }
+    let (volume, rest) = path.strip_prefix("fs/")?.split_once('/')?;
+    Some(HostPath::new(
+        Some(acquire_drive(volume)?),
+        components(rest),
+    ))
+}
+
+/// UAC: host files under `[root]/` and its own `uac.log` or `live_response/`.
+fn is_uac(paths: &[String]) -> bool {
+    paths.iter().any(|p| p.starts_with("[root]/"))
+        && paths
+            .iter()
+            .any(|p| p == "uac.log" || p.starts_with("live_response/"))
+}
+
+/// `[root]/etc/passwd` → `/etc/passwd`.
+fn uac_host_path(path: &str) -> Option<HostPath> {
+    let rest = path.strip_prefix("[root]/")?;
+    Some(HostPath::unix(rest.split('/').map(str::to_owned).collect()))
 }
 
 fn is_velociraptor(paths: &[String]) -> bool {
@@ -258,6 +341,8 @@ impl LayoutKind {
             Self::Kape => "kape",
             Self::Velociraptor => "velociraptor",
             Self::DiskImage => "disk_image",
+            Self::Acquire => "acquire",
+            Self::Uac => "uac",
             Self::Loose => "loose",
         }
     }
