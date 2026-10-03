@@ -21,12 +21,14 @@ use std::time::UNIX_EPOCH;
 
 use common::gzip;
 use common::sha256::Sha256;
+use common::time::Ts;
 
 use crate::source::{Source, SourceEntry};
 
 const BLOCK: u64 = 512;
 const NAME: std::ops::Range<usize> = 0..100;
 const SIZE: std::ops::Range<usize> = 124..136;
+const MTIME: std::ops::Range<usize> = 136..148;
 const CHECKSUM: std::ops::Range<usize> = 148..156;
 const TYPE: usize = 156;
 const MAGIC: std::ops::Range<usize> = 257..262;
@@ -123,9 +125,32 @@ fn pax(data: &[u8], key: &str) -> Option<String> {
     None
 }
 
-/// A tar archive's regular files: offset of their content, size.
+/// A regular file in a tar archive.
+#[derive(Clone, Copy)]
+struct Member {
+    offset: u64,
+    size: u64,
+    modified: Option<Ts>,
+}
+
+/// A tar archive's regular files.
 struct Index {
-    files: BTreeMap<String, (u64, u64)>,
+    files: BTreeMap<String, Member>,
+}
+
+/// A modification time: pax's `mtime` (seconds, maybe with a fraction)
+/// when given, else the header's (whole seconds).
+fn mtime(header: &[u8], pax_mtime: Option<&str>) -> Option<Ts> {
+    if let Some(text) = pax_mtime {
+        let (seconds, fraction) = text.split_once('.').unwrap_or((text, ""));
+        let seconds: i64 = seconds.parse().ok()?;
+        let micros: i64 = format!("{fraction:0<6}").get(..6)?.parse().ok()?;
+        return Some(Ts::from_unix_micros(
+            seconds.checked_mul(1_000_000)?.checked_add(micros)?,
+        ));
+    }
+    let seconds = i64::try_from(octal(&header[MTIME])?).ok()?;
+    (seconds > 0).then(|| Ts::from_unix_seconds(seconds))
 }
 
 fn index(file: &mut BufReader<File>, length: u64) -> io::Result<Index> {
@@ -134,6 +159,7 @@ fn index(file: &mut BufReader<File>, length: u64) -> io::Result<Index> {
     let mut long_name: Option<String> = None;
     let mut pax_path: Option<String> = None;
     let mut pax_size: Option<u64> = None;
+    let mut pax_mtime: Option<String> = None;
     let mut header = [0u8; BLOCK as usize];
     while at + BLOCK <= length {
         file.seek(SeekFrom::Start(at))?;
@@ -176,8 +202,10 @@ fn index(file: &mut BufReader<File>, length: u64) -> io::Result<Index> {
                 let data = meta(file)?;
                 pax_path = pax(&data, "path");
                 pax_size = pax(&data, "size").and_then(|s| s.parse().ok());
+                pax_mtime = pax(&data, "mtime");
             }
             b'0' | b'\0' | b'7' => {
+                let pax_mtime = pax_mtime.take();
                 let name = match (pax_path.take(), long_name.take()) {
                     (Some(path), _) | (None, Some(path)) => path,
                     (None, None) => {
@@ -196,13 +224,22 @@ fn index(file: &mut BufReader<File>, length: u64) -> io::Result<Index> {
                             format!("tar: {path} is cut short"),
                         ));
                     }
-                    files.insert(path, (data, size));
+                    let modified = mtime(&header, pax_mtime.as_deref());
+                    files.insert(
+                        path,
+                        Member {
+                            offset: data,
+                            size,
+                            modified,
+                        },
+                    );
                 }
             }
             // Directories, links, devices, global pax headers.
             _ => {
                 long_name = None;
                 pax_path = None;
+                pax_mtime = None;
             }
         }
         at = next;
@@ -281,9 +318,10 @@ impl Source for TarSource {
             .index
             .files
             .iter()
-            .map(|(path, &(_, size))| SourceEntry {
+            .map(|(path, member)| SourceEntry {
                 path: path.clone(),
-                size,
+                size: member.size,
+                modified: member.modified,
             })
             .collect())
     }
@@ -293,7 +331,7 @@ impl Source for TarSource {
         entry: &SourceEntry,
         f: &mut dyn FnMut(&mut dyn Read) -> io::Result<()>,
     ) -> io::Result<()> {
-        let &(offset, size) = self.index.files.get(&entry.path).ok_or_else(|| {
+        let &Member { offset, size, .. } = self.index.files.get(&entry.path).ok_or_else(|| {
             io::Error::new(
                 io::ErrorKind::NotFound,
                 format!("{} isn't in {}", entry.path, self.name),

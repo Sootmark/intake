@@ -304,6 +304,7 @@ impl Source for ImageSource {
                 volume.files.iter().map(|file| SourceEntry {
                     path: entry_path(&volume.prefix, file),
                     size: file.size,
+                    modified: None,
                 })
             })
             .collect();

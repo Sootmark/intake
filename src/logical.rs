@@ -99,6 +99,9 @@ impl Ad1Source {
             entries.push(SourceEntry {
                 path,
                 size: item.size,
+                modified: item
+                    .time(ad1::key::MODIFIED)
+                    .map(common::time::Ts::from_filetime),
             });
         }
         entries.sort_by(|a, b| a.path.cmp(&b.path));

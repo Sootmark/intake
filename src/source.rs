@@ -6,6 +6,7 @@ use std::io::{self, BufReader, Read, Seek};
 use std::path::{Path, PathBuf};
 
 use common::sha256::Sha256;
+use common::time::Ts;
 use zip::Archive;
 
 use crate::image::{self, Container, ImageSource};
@@ -20,6 +21,19 @@ pub struct SourceEntry {
     pub path: String,
     /// Size in bytes.
     pub size: u64,
+    /// When the file was last modified, as the source records it (UTC);
+    /// `None` when it doesn't (zip entries and disk images, for now).
+    pub modified: Option<Ts>,
+}
+
+/// A file's modification time from the file system.
+pub(crate) fn file_time(metadata: &fs::Metadata) -> Option<Ts> {
+    let since = metadata
+        .modified()
+        .ok()?
+        .duration_since(std::time::UNIX_EPOCH)
+        .ok()?;
+    Some(Ts::from_unix_micros(i64::try_from(since.as_micros()).ok()?))
 }
 
 /// Something evidence files can be read from.
@@ -200,6 +214,7 @@ impl DirectorySource {
                 entries.push(SourceEntry {
                     path,
                     size: metadata.len(),
+                    modified: file_time(&metadata),
                 });
             }
         }
@@ -278,6 +293,7 @@ impl<R: Read + Seek> Source for ZipSource<R> {
             .map(|e| SourceEntry {
                 path: e.name.clone(),
                 size: e.size,
+                modified: None,
             })
             .collect();
         entries.sort_by(|a, b| a.path.cmp(&b.path));
@@ -315,9 +331,11 @@ impl Source for FileSource {
     }
 
     fn entries(&self) -> io::Result<Vec<SourceEntry>> {
+        let metadata = fs::metadata(&self.path)?;
         Ok(vec![SourceEntry {
             path: self.name.clone(),
-            size: fs::metadata(&self.path)?.len(),
+            size: metadata.len(),
+            modified: file_time(&metadata),
         }])
     }
 

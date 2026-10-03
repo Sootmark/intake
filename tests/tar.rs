@@ -66,6 +66,11 @@ fn acquire_gzipped_pax() {
         .with_reader(system, &mut |r| r.read_to_string(&mut text).map(|_| ()))
         .unwrap();
     assert_eq!(text, "regf");
+    // Each entry's modification time, from its header.
+    assert_eq!(
+        system.modified,
+        Some(common::time::Ts::from_unix_seconds(1_790_000_000))
+    );
     // A second open reuses the decompressed copy.
     let again = open(&path, &Credentials::default()).unwrap();
     assert_eq!(again.entries().unwrap(), entries);
