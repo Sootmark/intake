@@ -100,6 +100,11 @@ const VELOCIRAPTOR_CLIENT_INFO: &str = "client_info.json";
 const UAC_HOSTNAME: &str = "live_response/system/hostname.txt";
 /// Top-level folders that belong to a layout, never a wrapping folder.
 const LAYOUT_FOLDERS: [&str; 5] = ["uploads", "fs", "sysvol", "[root]", "live_response"];
+/// Top-level folders of a Unix file system: a loose `var/log/…` tree is a
+/// file system's own, never wrapped in a folder named after the host.
+const UNIX_ROOT_FOLDERS: [&str; 9] = [
+    "var", "etc", "home", "root", "usr", "opt", "tmp", "private", "Library",
+];
 /// Upper bound on metadata read for hints.
 const METADATA_LIMIT: usize = 1 << 20;
 
@@ -190,7 +195,10 @@ fn common_root(entries: &[SourceEntry]) -> Option<String> {
     let shared = entries
         .iter()
         .all(|e| e.path.split_once('/').is_some_and(|(top, _)| top == first));
-    let is_layout_folder = is_drive_folder(first) || LAYOUT_FOLDERS.contains(&first);
+    let is_layout_folder = is_drive_folder(first)
+        || LAYOUT_FOLDERS.contains(&first)
+        || VOLUME_MARKERS.contains(&first)
+        || UNIX_ROOT_FOLDERS.contains(&first);
     (shared && !is_layout_folder).then(|| first.to_owned())
 }
 
@@ -394,6 +402,32 @@ mod tests {
         assert_eq!(raw_device.to_string(), r"C:\$MFT");
         assert_eq!(
             velociraptor_host_path("results/Windows.System.Pslist.json"),
+            None
+        );
+    }
+
+    #[test]
+    fn file_system_folders_are_not_hosts() {
+        let entries = |paths: &[&str]| -> Vec<SourceEntry> {
+            paths
+                .iter()
+                .map(|path| SourceEntry {
+                    path: (*path).to_owned(),
+                    size: 1,
+                    modified: None,
+                })
+                .collect()
+        };
+        assert_eq!(
+            common_root(&entries(&["web1/var/log/auth.log", "web1/var/log/syslog"])),
+            Some("web1".to_owned())
+        );
+        assert_eq!(
+            common_root(&entries(&["var/log/auth.log", "var/log/syslog"])),
+            None
+        );
+        assert_eq!(
+            common_root(&entries(&["Windows/System32/config/SYSTEM"])),
             None
         );
     }
