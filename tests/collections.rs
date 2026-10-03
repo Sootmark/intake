@@ -112,6 +112,15 @@ fn velociraptor_zip_decodes_paths_and_reads_the_hostname() {
     assert_eq!(host_path_of(&preview, "$MFT").as_deref(), Some(r"C:\$MFT"));
     assert_eq!(host_path_of(&preview, "Pslist.json"), None);
     assert_eq!(preview.by_parser["evtx"].files, 1);
+    // Entries carry the zip's times: here MS-DOS ones, a wall clock with no
+    // zone, never passed off as UTC.
+    let source = sootmark_intake::open(&zip_path, &Credentials::default()).unwrap();
+    let modified = source.entries().unwrap()[0].modified.unwrap();
+    assert_eq!(
+        modified.semantic(),
+        common::time::Semantic::LocalUnknownZone
+    );
+    assert_eq!(&modified.to_string()[..16], "2026-09-28T10:00");
 }
 
 #[test]

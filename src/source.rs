@@ -293,7 +293,7 @@ impl<R: Read + Seek> Source for ZipSource<R> {
             .map(|e| SourceEntry {
                 path: e.name.clone(),
                 size: e.size,
-                modified: None,
+                modified: e.modified,
             })
             .collect();
         entries.sort_by(|a, b| a.path.cmp(&b.path));
