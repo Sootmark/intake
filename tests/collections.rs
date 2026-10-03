@@ -177,3 +177,36 @@ fn manifest_hashes_every_file() {
         Some(r"C:\Windows\System32\config\SYSTEM")
     );
 }
+
+#[test]
+fn collected_files_take_their_times_from_the_collected_mft() {
+    let mft = common::deflate::zlib_decompress(
+        &fs::read(Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/fin-wks-07.mft.zlib"))
+            .unwrap(),
+        1 << 20,
+    )
+    .unwrap();
+    let dir = TempDir::new().unwrap();
+    let collection = dir.path().join("WS07");
+    write_file(&collection, "C/$MFT", &mft);
+    write_file(&collection, "C/ProgramData/Intel/m64.exe", b"MZ");
+    write_file(&collection, "C/Windows/notes.txt", b"not in this MFT");
+    let preview = preview(&collection, &adapters(), &Credentials::default()).unwrap();
+    assert_eq!(preview.mft_drives, ['C']);
+    let modified = |stored: &str| {
+        preview
+            .files
+            .iter()
+            .find(|f| f.path.ends_with(stored))
+            .unwrap()
+            .ntfs_modified
+            .and_then(|t| t.to_iso8601())
+    };
+    // The file's time on the host (rolled back by timestomping), not the
+    // copy's.
+    assert_eq!(
+        modified("m64.exe").as_deref(),
+        Some("2019-03-18T04:12:00.0000000Z")
+    );
+    assert_eq!(modified("notes.txt"), None);
+}

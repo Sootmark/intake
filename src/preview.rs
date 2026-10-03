@@ -11,6 +11,7 @@ use crate::collection::{self, CollectionLog};
 use crate::detect::{detect, Detected};
 use crate::image::Container;
 use crate::layout::{self, Layout};
+use crate::mft_times;
 use crate::protected::{Credentials, Scheme};
 use crate::source;
 
@@ -60,6 +61,9 @@ pub struct Preview {
     pub unreadable: Tally,
     /// Per-file detail.
     pub files: Vec<Detected>,
+    /// Drives whose `$MFT` the collection holds, read for its files' times
+    /// ([`Detected::ntfs_modified`]).
+    pub mft_drives: Vec<char>,
 }
 
 impl Preview {
@@ -120,7 +124,8 @@ pub fn preview(
     let entries = source.entries()?;
     let layout = layout::recognise(source.as_ref(), &entries);
     let collection_log = collection::read(source.as_ref(), &layout, &entries);
-    let files = detect(source.as_ref(), &layout, &entries, adapters)?;
+    let mut files = detect(source.as_ref(), &layout, &entries, adapters)?;
+    let mft_drives = mft_times::apply(source.as_ref(), &entries, &mut files);
     let mut total = Tally::default();
     let mut by_parser: BTreeMap<&'static str, Tally> = BTreeMap::new();
     let mut unrecognised = Tally::default();
@@ -144,5 +149,6 @@ pub fn preview(
         unrecognised,
         unreadable,
         files,
+        mft_drives,
     })
 }

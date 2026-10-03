@@ -12,6 +12,7 @@ mod image;
 mod layout;
 mod logical;
 mod manifest;
+mod mft_times;
 mod path;
 mod preview;
 mod protected;

@@ -3,6 +3,7 @@
 use std::io;
 
 use common::json::Json;
+use common::time::Ts;
 use model::adapter::{Adapter, Confidence};
 
 use crate::layout::Layout;
@@ -28,6 +29,10 @@ pub struct Detected {
     /// Why the file couldn't be read (an encrypted NTFS stream, damage),
     /// when it couldn't: it's kept, not parsed.
     pub unreadable: Option<String>,
+    /// Its modification time on the host (UTC), from the volume's `$MFT`
+    /// when the collection holds it: the file's own time, rather than the
+    /// copy's.
+    pub ntfs_modified: Option<Ts>,
 }
 
 impl Detected {
@@ -43,6 +48,10 @@ impl Detected {
             ("size", Json::from(self.size)),
             ("parser", Json::from(self.parser)),
             ("unreadable", Json::from(self.unreadable.clone())),
+            (
+                "ntfs_modified",
+                Json::from(self.ntfs_modified.and_then(|t| t.to_iso8601())),
+            ),
         ])
     }
 }
@@ -72,6 +81,7 @@ pub fn detect(
                         parser: None,
                         confidence: Confidence::No,
                         unreadable: Some(error.to_string()),
+                        ntfs_modified: None,
                     })
                 }
             };
@@ -91,6 +101,7 @@ pub fn detect(
                 parser: best.map(|(_, parser)| parser),
                 confidence: best.map_or(Confidence::No, |(confidence, _)| confidence),
                 unreadable: None,
+                ntfs_modified: None,
             })
         })
         .collect()
