@@ -304,7 +304,7 @@ impl Source for ImageSource {
                 volume.files.iter().map(|file| SourceEntry {
                     path: entry_path(&volume.prefix, file),
                     size: file.size,
-                    modified: None,
+                    modified: file.times.modified,
                 })
             })
             .collect();
@@ -341,6 +341,7 @@ mod tests {
             record: 0,
             stream: None,
             size: 0,
+            times: disk::Times::default(),
         }
     }
 

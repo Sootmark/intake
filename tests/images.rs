@@ -208,3 +208,21 @@ fn corrupted_images_never_panic() {
         let _ = preview(&path, &[&EvtxAdapter], &Credentials::default());
     }
 }
+
+#[test]
+fn files_carry_their_file_system_times() {
+    use common::time::Semantic;
+    let source = open(&fixture("fin-wks-07.img"), &Credentials::default()).unwrap();
+    let entries = source.entries().unwrap();
+    let modified = |path: &str| {
+        entries
+            .iter()
+            .find(|e| e.path == path)
+            .and_then(|e| e.modified)
+            .unwrap()
+            .semantic()
+    };
+    // NTFS keeps UTC; FAT a wall clock in an unknown zone.
+    assert_eq!(modified(RCLONE_CONF), Semantic::Utc);
+    assert_eq!(modified(FAT_FILES[2]), Semantic::LocalUnknownZone);
+}

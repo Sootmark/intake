@@ -21,8 +21,9 @@ pub struct SourceEntry {
     pub path: String,
     /// Size in bytes.
     pub size: u64,
-    /// When the file was last modified, as the source records it (UTC);
-    /// `None` when it doesn't (zip entries and disk images, for now).
+    /// When the file was last modified, as the source records it (UTC
+    /// mostly); `None` when it doesn't. Zip entries and FAT volumes keep a
+    /// wall-clock time in an unknown zone, which [`Ts::semantic`] says.
     pub modified: Option<Ts>,
 }
 
