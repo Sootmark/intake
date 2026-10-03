@@ -47,10 +47,16 @@ fn host_path_of(preview: &Preview, stored: &str) -> Option<String> {
 #[test]
 fn kape_folder_maps_drive_folders_to_host_paths() {
     let dir = TempDir::new().unwrap();
-    kape_folder(dir.path());
-    let preview = preview(dir.path(), &adapters(), &Credentials::default()).unwrap();
+    let collection = dir.path().join("WEB1");
+    kape_folder(&collection);
+    let preview = preview(&collection, &adapters(), &Credentials::default()).unwrap();
     assert_eq!(preview.layout.kind, LayoutKind::Kape);
-    assert_eq!(preview.layout.host_hint, None);
+    // The folder itself names the host.
+    let hint = preview.layout.host_hint.as_ref().unwrap();
+    assert_eq!(
+        (hint.name.as_str(), hint.source),
+        ("WEB1", HintSource::FolderName)
+    );
     assert_eq!(
         host_path_of(&preview, "Security.evtx").as_deref(),
         Some(SECURITY_LOG)
@@ -77,6 +83,15 @@ fn a_wrapping_folder_becomes_the_host_hint() {
         host_path_of(&preview, "Security.evtx").as_deref(),
         Some(SECURITY_LOG)
     );
+}
+
+#[test]
+fn a_file_system_folder_names_no_host() {
+    let dir = TempDir::new().unwrap();
+    let var = dir.path().join("var");
+    write_file(&var, "log/auth.log", b"Mar 11 22:55:31 web1 sshd[3]: x");
+    let preview = preview(&var, &adapters(), &Credentials::default()).unwrap();
+    assert_eq!(preview.layout.host_hint, None);
 }
 
 #[test]

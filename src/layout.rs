@@ -45,7 +45,8 @@ impl core::fmt::Display for LayoutKind {
 pub enum HintSource {
     /// Velociraptor's `client_info.json`.
     CollectorMetadata,
-    /// The name of the folder the collection was wrapped in.
+    /// The name of the folder the collection was wrapped in, or of the
+    /// folder or archive itself (`web1/`, `web1.zip`).
     FolderName,
 }
 
@@ -121,10 +122,17 @@ pub fn recognise(source: &dyn Source, entries: &[SourceEntry]) -> Layout {
     let root = common_root(entries);
     let relative = |entry: &SourceEntry| strip_root(&entry.path, root.as_deref()).to_owned();
     let paths: Vec<String> = entries.iter().map(relative).collect();
-    let folder_hint = root.as_ref().map(|name| HostHint {
-        name: name.clone(),
-        source: HintSource::FolderName,
-    });
+    // The wrapping folder, else the source's own name; none inside a
+    // file system's folder (`var/log/…`: `log` names no host).
+    let stem = source_stem(source, entries);
+    let folder_hint = root
+        .as_deref()
+        .or(stem)
+        .filter(|_| !stem.is_some_and(is_own_folder))
+        .map(|name| HostHint {
+            name: name.to_owned(),
+            source: HintSource::FolderName,
+        });
 
     if is_velociraptor(&paths) {
         let metadata_hint = entries
@@ -195,11 +203,36 @@ fn common_root(entries: &[SourceEntry]) -> Option<String> {
     let shared = entries
         .iter()
         .all(|e| e.path.split_once('/').is_some_and(|(top, _)| top == first));
-    let is_layout_folder = is_drive_folder(first)
-        || LAYOUT_FOLDERS.contains(&first)
-        || VOLUME_MARKERS.contains(&first)
-        || UNIX_ROOT_FOLDERS.contains(&first);
-    (shared && !is_layout_folder).then(|| first.to_owned())
+    (shared && !is_own_folder(first)).then(|| first.to_owned())
+}
+
+/// The folder or archive's own name without its extension: `web1` for
+/// `web1/`, `web1.zip` or `web1.tar.gz`; `None` for a single file.
+fn source_stem<'s>(source: &'s dyn Source, entries: &[SourceEntry]) -> Option<&'s str> {
+    let name = source.name();
+    if matches!(entries, [single] if single.path == name) {
+        return None;
+    }
+    let stem = [".tar.gz", ".tgz", ".tar", ".zip"]
+        .iter()
+        .find_map(|extension| strip_suffix_ignore_case(name, extension))
+        .unwrap_or(name);
+    (!stem.is_empty()).then_some(stem)
+}
+
+/// A folder of a file system or of a collector's layout, never a host's
+/// name.
+fn is_own_folder(name: &str) -> bool {
+    is_drive_folder(name)
+        || LAYOUT_FOLDERS.contains(&name)
+        || VOLUME_MARKERS.contains(&name)
+        || UNIX_ROOT_FOLDERS.contains(&name)
+}
+
+fn strip_suffix_ignore_case<'n>(name: &'n str, suffix: &str) -> Option<&'n str> {
+    let split = name.len().checked_sub(suffix.len())?;
+    (name.is_char_boundary(split) && name[split..].eq_ignore_ascii_case(suffix))
+        .then(|| &name[..split])
 }
 
 fn strip_root<'p>(path: &'p str, root: Option<&str>) -> &'p str {

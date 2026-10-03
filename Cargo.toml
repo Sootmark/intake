@@ -1,6 +1,6 @@
 [package]
 name = "sootmark-intake"
-version = "0.7.1"
+version = "0.7.2"
 edition = "2021"
 rust-version = "1.80"
 description = "Evidence intake: read directories, zips, disk images (E01, VHDX, raw) and AD1 logical images, recognise KAPE and Velociraptor collections, detect which parser handles each file."
