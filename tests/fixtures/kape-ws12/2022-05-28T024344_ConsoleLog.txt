@@ -1,0 +1,5 @@
+2022-05-28 02:43:44.1234 | I | KAPE version 1.2.0.0 Author: Eric Zimmerman (kape@kroll.com)
+2022-05-28 02:43:44.1300 | I | KAPE directory: 'C:\Tools\KAPE'
+2022-05-28 02:43:44.1400 | I | Command line:   --tsource C: --tdest D:\kape\tout --target RegistryHivesUser
+2022-05-28 02:43:45.0000 | I | Copied 1 out of 1 files in 0.5000 seconds. See '*_CopyLog.csv' in 'D:\kape\tout' for copy details
+2022-05-28 02:43:45.1000 | F | Total execution time: 1.0000 seconds

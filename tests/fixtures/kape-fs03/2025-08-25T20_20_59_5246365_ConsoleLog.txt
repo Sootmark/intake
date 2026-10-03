@@ -1,0 +1,18 @@
+[2025-08-25 13:20:59.6012345 | INF] KAPE directory: C:\Tools\KAPE
+[2025-08-25 13:20:59.6023456 | INF] Command line:   --tsource C: --tdest C:\cases\FS03\tout --tflush --target EventLogs,RegistryHives,$J,EdgeChromium,Prefetch --gui
+[2025-08-25 13:20:59.6034567 | INF] System info: Machine name: FS03, 64-bit: true, User: Administrator OS: "Windows10" (10.0.19045)
+[2025-08-25 13:20:59.6045678 | INF] Using Target operations
+[2025-08-25 13:20:59.6056789 | WRN]   Flushing target destination directory C:\cases\FS03\tout
+[2025-08-25 13:21:00.1807432 | INF] Found 5 targets. Expanding targets to file list...
+[2025-08-25 13:21:00.2807432 | ERR] Target RegistryHives with Id 2da16dbf-ea47-448e-a00f-fc442c3109ba already processed. Skipping!
+[2025-08-25 13:21:02.1807432 | INF] Found 6 files in 2.001 seconds. Beginning copy...
+[2025-08-25 13:21:02.2807432 | INF]   Deferring C:\$Extend\$UsnJrnl:$J due to UnauthorizedAccessException...
+[2025-08-25 13:21:03.1807432 | WRN] File C:\Windows\prefetch\BACKGROUNDTASKHOST.EXE-4210C92D.pf does not exist! Skipping!
+[2025-08-25 13:21:05.1807432 | INF] Deferred file count: 3. Copying locked files...
+[2025-08-25 13:21:06.2124525 | WRN]   Skipping sparse data area in $J!
+[2025-08-25 13:21:07.2124525 | FTL] Could not copy file C:\Users\steven\AppData\Local\Microsoft\Edge\User Data\Default\Preferences to C:\cases\FS03\tout\C\Users\steven\AppData\Local\Microsoft\Edge\User Data\Default\Preferences. Error: Attempt to get an MFT record with an old reference
+System.IO.IOException: Attempt to get an MFT record with an old reference
+   at DiscUtils.Ntfs.File.Open(Int32 streamId)
+[2025-08-25 13:21:09.2124525 | WRN] WARNING: THERE WERE {.Count:N0} FILE COPY FAILURES! See the console log for details!!!
+[2025-08-25 13:21:09.9776063 | INF] Copied 3 (Deduplicated: 1) out of 6 files in 7.7969 seconds. File copy errors: 1. See console log for details! See C:\cases\FS03\tout\2025-08-25T20_20_59_5246365_CopyLog.csv for copy details
+[2025-08-25 13:21:10.0012345 | INF] Total execution time: 10.4001 seconds

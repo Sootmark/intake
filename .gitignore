@@ -1,0 +1,4 @@
+/target
+.DS_Store
+# Real evidence is not redistributable.
+/tests/fixtures/*.evtx

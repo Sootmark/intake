@@ -1,0 +1,2 @@
+# Fixtures are evidence: keep their bytes (CRLF, BOMs) exactly as generated.
+tests/fixtures/** -text
