@@ -85,10 +85,12 @@ pub fn detect(
                     })
                 }
             };
-            let name = host_path
-                .as_ref()
-                .and_then(HostPath::file_name)
-                .unwrap_or(&entry.path);
+            // The path on the host, `/`-separated whatever its system
+            // (`/etc/crontab`, `C:/Windows/…`): adapters recognise files by
+            // name and some by where they are (a crontab spool's files are
+            // named after their users).
+            let host = host_path.as_ref().map(|h| h.to_string().replace('\\', "/"));
+            let name = host.as_deref().unwrap_or(&entry.path);
             let best = adapters
                 .iter()
                 .map(|adapter| (adapter.probe(name, &head), adapter.parser().name))
