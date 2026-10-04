@@ -238,3 +238,92 @@ fn preview_json_carries_the_collection_log() {
     let loose = preview_of(&fixture("kape-fs03/C")).to_json();
     assert_eq!(loose.get("collection_log"), Some(&common::json::Json::Null));
 }
+
+/// A Sootmark collector archive, as a folder: what `sootmark-collector`
+/// writes (its manifest lines and outcome), for two files collected, one
+/// cut, one unreadable, one skipped and a rule that found nothing.
+fn sootmark_collection(root: &Path) {
+    let write = |relative: &str, content: &[u8]| {
+        let path = root.join(relative);
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(path, content).unwrap();
+    };
+    let sha256 = |bytes: &[u8]| common::sha256::hex(&common::sha256::Sha256::digest(bytes));
+    let (history, zone) = (
+        b"whoami\n".as_slice(),
+        b"[ZoneTransfer]\r\nZoneId=3\r\n".as_slice(),
+    );
+    write(
+        "C/Users/a/AppData/Roaming/Microsoft/Windows/PowerShell/PSReadLine/ConsoleHost_history.txt",
+        history,
+    );
+    write("C/Users/a/Downloads/x.zip%3AZone.Identifier", zone);
+    write("C/Windows/big.log", b"0123456789");
+    let manifest = format!(
+        concat!(
+            r#"{{"rule":"powershell","path":"C:\\Users\\a\\AppData\\Roaming\\Microsoft\\Windows\\PowerShell\\PSReadLine\\ConsoleHost_history.txt","status":"ok","stored":"C/Users/a/AppData/Roaming/Microsoft/Windows/PowerShell/PSReadLine/ConsoleHost_history.txt","size":7,"collected_bytes":7,"sha256":"{}"}}"#,
+            "\n",
+            r#"{{"rule":"zone","path":"C:\\Users\\a\\Downloads\\x.zip:Zone.Identifier","status":"ok","stored":"C/Users/a/Downloads/x.zip%3AZone.Identifier","size":26,"collected_bytes":26,"sha256":"{}"}}"#,
+            "\n",
+            r#"{{"rule":"logs","path":"C:\\Windows\\big.log","status":"partial","stored":"C/Windows/big.log","size":1000,"collected_bytes":10,"sha256":"{}"}}"#,
+            "\n",
+            r#"{{"rule":"logs","path":"C:\\Windows\\locked.log","status":"error","why":"encrypted stream"}}"#,
+            "\n",
+            r#"{{"rule":"logs","path":"C:\\Windows\\late.log","status":"skipped_limit","why":"deadline reached"}}"#,
+            "\n",
+            r#"{{"rule":"evtx","status":"not_found"}}"#,
+            "\n"
+        ),
+        sha256(history),
+        sha256(zone),
+        sha256(b"0123456789")
+    );
+    write("manifest.jsonl", manifest.as_bytes());
+    write(
+        "outcome.json",
+        br#"{"collector":"sootmark-collector","version":"0.1.0","host":"WS-042","started":"2026-10-04T08:15:30.1234567Z","collected":2,"partial":1}"#,
+    );
+}
+
+#[test]
+fn sootmark_collector_archives_are_read_whole() {
+    let dir = TempDir::new().unwrap();
+    let root = dir.path().join("collection");
+    sootmark_collection(&root);
+    let preview = preview_of(&root);
+    assert_eq!(preview.layout.kind, LayoutKind::Sootmark);
+    assert_eq!(preview.layout.host_hint.as_ref().unwrap().name, "WS-042");
+    let zone = preview
+        .files
+        .iter()
+        .find(|f| f.path.ends_with("Zone.Identifier"))
+        .unwrap();
+    assert_eq!(
+        zone.host_path.as_ref().unwrap().to_string(),
+        r"C:\Users\a\Downloads\x.zip:Zone.Identifier"
+    );
+
+    let log = preview.collection_log.as_ref().unwrap();
+    assert_eq!(log.collector, LayoutKind::Sootmark);
+    assert_eq!(log.version.as_deref(), Some("0.1.0"));
+    assert_eq!(log.outcome, Outcome::Completed);
+    assert_eq!(
+        log.started.unwrap().to_iso8601().unwrap(),
+        "2026-10-04T08:15:30.1234567Z"
+    );
+    assert_eq!(log.requested, ["powershell", "zone", "logs", "evtx"]);
+    assert_eq!(log.without_results, ["evtx"]);
+    assert_eq!(log.failed.len(), 2);
+    assert_eq!(log.failed[0].reason, "encrypted stream");
+    assert!(log.failed[1].reason.contains("deadline"));
+    assert_eq!(log.partial[0].expected, 1000);
+    assert_eq!(log.files_recorded, 3);
+    assert!(log.gaps.is_empty(), "{:?}", log.gaps);
+
+    let source = sootmark_intake::open(&root, &Credentials::default()).unwrap();
+    let check = check_hashes(source.as_ref(), &preview.layout, log).unwrap();
+    assert_eq!(
+        (check.checked, check.mismatched.len(), check.missing.len()),
+        (3, 0, 0)
+    );
+}

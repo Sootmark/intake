@@ -23,6 +23,10 @@ pub enum LayoutKind {
     /// UAC (Unix-like Artifacts Collector): host files under `[root]/…`,
     /// command output under `live_response/`, the run in `uac.log`.
     Uac,
+    /// The Sootmark collector: KAPE's drive-letter layout (alternate data
+    /// streams as `name%3Astream`), with `manifest.jsonl` and
+    /// `outcome.json`.
+    Sootmark,
     /// Anything else: loose files with no host paths.
     Loose,
 }
@@ -35,6 +39,7 @@ impl core::fmt::Display for LayoutKind {
             Self::DiskImage => "disk image",
             Self::Acquire => "acquire",
             Self::Uac => "UAC",
+            Self::Sootmark => "Sootmark collector",
             Self::Loose => "loose files",
         })
     }
@@ -149,6 +154,21 @@ pub fn recognise(source: &dyn Source, entries: &[SourceEntry]) -> Layout {
             host_hint: metadata_hint.or(folder_hint),
         };
     }
+    if let Some(outcome) = sootmark_outcome(source, entries, &relative) {
+        let host = outcome
+            .get("host")
+            .and_then(Json::as_str)
+            .filter(|name| !name.is_empty())
+            .map(|name| HostHint {
+                name: name.to_owned(),
+                source: HintSource::CollectorMetadata,
+            });
+        return Layout {
+            kind: LayoutKind::Sootmark,
+            root,
+            host_hint: host.or(folder_hint),
+        };
+    }
     if is_uac(&paths) {
         let hostname = entries
             .iter()
@@ -187,6 +207,7 @@ impl Layout {
         let path = strip_root(path, self.root.as_deref());
         match self.kind {
             LayoutKind::Kape => kape_host_path(path),
+            LayoutKind::Sootmark => kape_host_path(&path.replace("%3A", ":")),
             LayoutKind::Velociraptor => velociraptor_host_path(path),
             LayoutKind::DiskImage => disk_image_host_path(path),
             LayoutKind::Acquire => acquire_host_path(path),
@@ -308,6 +329,23 @@ fn acquire_host_path(path: &str) -> Option<HostPath> {
 }
 
 /// UAC: host files under `[root]/` and its own `uac.log` or `live_response/`.
+/// The Sootmark collector's `outcome.json`, when the source is one of its
+/// archives.
+fn sootmark_outcome(
+    source: &dyn Source,
+    entries: &[SourceEntry],
+    relative: &dyn Fn(&SourceEntry) -> String,
+) -> Option<Json> {
+    let entry = entries
+        .iter()
+        .find(|e| relative(e) == crate::collection::sootmark::OUTCOME)?;
+    let head = source.head(entry, METADATA_LIMIT).ok()?;
+    let outcome = json::parse(std::str::from_utf8(&head).ok()?).ok()?;
+    let ours = outcome.get("collector").and_then(Json::as_str)
+        == Some(crate::collection::sootmark::COLLECTOR);
+    ours.then_some(outcome)
+}
+
 fn is_uac(paths: &[String]) -> bool {
     paths.iter().any(|p| p.starts_with("[root]/"))
         && paths
@@ -384,6 +422,7 @@ impl LayoutKind {
             Self::DiskImage => "disk_image",
             Self::Acquire => "acquire",
             Self::Uac => "uac",
+            Self::Sootmark => "sootmark",
             Self::Loose => "loose",
         }
     }

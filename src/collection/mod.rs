@@ -6,6 +6,7 @@
 //! found nothing ("absent"). Never infer either from missing files alone.
 
 mod kape;
+pub(crate) mod sootmark;
 mod velociraptor;
 
 use std::collections::HashMap;
@@ -330,6 +331,7 @@ pub fn read(
     match layout.kind {
         LayoutKind::Velociraptor => Some(velociraptor::read(&files)),
         LayoutKind::Kape => Some(kape::read(&files)),
+        LayoutKind::Sootmark => Some(sootmark::read(&files)),
         LayoutKind::DiskImage | LayoutKind::Acquire | LayoutKind::Uac | LayoutKind::Loose => None,
     }
 }
