@@ -113,6 +113,9 @@ pub fn open(path: &Path, credentials: &Credentials) -> io::Result<Box<dyn Source
         }));
     }
     let head = read_head(path)?;
+    if head.starts_with(AGE_SIGNATURE) {
+        return open_age(path, name, credentials);
+    }
     if head.starts_with(ZIP_SIGNATURE) {
         return open_zip(path, name, credentials);
     }
@@ -137,6 +140,35 @@ pub fn open(path: &Path, credentials: &Credentials) -> io::Result<Box<dyn Source
 /// Read-ahead for the decrypted inner collection: every read of it seeks
 /// in the outer file, so read in large pieces.
 const INNER_BUFFER: usize = 1 << 16;
+
+/// A zip encrypted with age (the Sootmark collector's archives, to the
+/// case's key), read in place: each chunk is decrypted as the zip reader
+/// reaches it, and no plaintext is written out.
+fn open_age(path: &Path, name: String, credentials: &Credentials) -> io::Result<Box<dyn Source>> {
+    let text = credentials
+        .age_identities
+        .as_deref()
+        .ok_or_else(|| Locked::error(Scheme::Age))?;
+    let identities = age::parse_identities(text)
+        .map_err(|e| io::Error::new(io::ErrorKind::InvalidInput, e.to_string()))?;
+    let decrypted =
+        age::decrypt_seekable(File::open(path)?, &identities).map_err(|error| match error {
+            age::Error::NoMatchingIdentity => io::Error::new(
+                io::ErrorKind::PermissionDenied,
+                "the archive is encrypted to another key than the ones given",
+            ),
+            age::Error::Io(error) => error,
+            other => io::Error::new(io::ErrorKind::InvalidData, other.to_string()),
+        })?;
+    let archive = Archive::open(BufReader::with_capacity(INNER_BUFFER, decrypted))
+        .map_err(|e| io::Error::new(e.kind(), format!("decrypted, but not a zip archive: {e}")))?;
+    Ok(Box::new(ZipSource::new(
+        archive,
+        name,
+        Some(Scheme::Age),
+        None,
+    )))
+}
 
 fn open_zip(path: &Path, name: String, credentials: &Credentials) -> io::Result<Box<dyn Source>> {
     let mut archive = Archive::open(BufReader::new(File::open(path)?))?;
@@ -176,6 +208,8 @@ fn open_zip(path: &Path, name: String, credentials: &Credentials) -> io::Result<
 }
 
 const ZIP_SIGNATURE: &[u8; 4] = b"PK\x03\x04";
+/// The first line of an age file.
+const AGE_SIGNATURE: &[u8] = b"age-encryption.org/v1\n";
 /// Enough of a file to recognise every container signature, and an AD1
 /// segment's margin (its segment count).
 const SIGNATURE_SIZE: u64 = 512;

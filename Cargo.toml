@@ -1,8 +1,8 @@
 [package]
 name = "sootmark-intake"
-version = "0.9.0"
+version = "0.10.0"
 edition = "2021"
-rust-version = "1.80"
+rust-version = "1.85"
 description = "Evidence intake: read directories, zips, disk images (E01, VHDX, raw) and AD1 logical images, recognise KAPE and Velociraptor collections, detect which parser handles each file."
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/Sootmark/intake"
@@ -17,7 +17,9 @@ model = { package = "sootmark-model", version = "0.2.0" }
 disk = { package = "sootmark-disk", version = "0.3.3" }
 ewf = { package = "sootmark-ewf", version = "0.1.3" }
 vhdx = { package = "sootmark-vhdx", version = "0.1.4" }
-zip = { package = "sootmark-zip", version = "0.3.0" }
+zip = { package = "sootmark-zip", version = "0.4.0" }
+# age decryption of the Sootmark collector's archives (RustCrypto inside, D11).
+age = { package = "sootmark-age", version = "0.2.0" }
 ad1 = { package = "sootmark-ad1", version = "0.1.2" }
 # Cryptography is never written in-house (D11): RustCrypto, MIT OR Apache-2.0.
 # RSA-OAEP (SHA-512) unwraps the password of X509-encrypted Velociraptor

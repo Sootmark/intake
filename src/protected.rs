@@ -32,6 +32,9 @@ pub enum Scheme {
     X509,
     /// A random password wrapped with PGP (not supported yet).
     Pgp,
+    /// An age file encrypted to X25519 keys: the Sootmark collector's
+    /// archives, encrypted to the case.
+    Age,
 }
 
 impl Scheme {
@@ -42,6 +45,7 @@ impl Scheme {
             Self::Password => "password",
             Self::X509 => "x509",
             Self::Pgp => "pgp",
+            Self::Age => "age",
         }
     }
 }
@@ -52,6 +56,7 @@ impl fmt::Display for Scheme {
             Self::Password => "Password",
             Self::X509 => "X509",
             Self::Pgp => "PGP",
+            Self::Age => "age",
         })
     }
 }
@@ -64,6 +69,9 @@ pub struct Credentials {
     /// Text holding one or more PEM private keys (X509 scheme): a key file,
     /// or Velociraptor's `server.config.yaml` as it is.
     pub private_keys: Option<String>,
+    /// Text holding one or more age identities (`AGE-SECRET-KEY-1…`, one a
+    /// line, `#` comments allowed): an identity file.
+    pub age_identities: Option<String>,
 }
 
 impl fmt::Debug for Credentials {
@@ -74,6 +82,10 @@ impl fmt::Debug for Credentials {
             .field(
                 "private_keys",
                 &self.private_keys.as_ref().map(|_| "<redacted>"),
+            )
+            .field(
+                "age_identities",
+                &self.age_identities.as_ref().map(|_| "<redacted>"),
             )
             .finish()
     }
@@ -111,6 +123,10 @@ impl fmt::Display for Locked {
             Scheme::Pgp => {
                 f.write_str("encrypted Velociraptor collection (PGP): not supported yet")
             }
+            Scheme::Age => f.write_str(
+                "encrypted archive (age): the identity it was encrypted to is needed \
+                 (an AGE-SECRET-KEY-1… key, the case's own for a Sootmark job)",
+            ),
         }
     }
 }
@@ -212,6 +228,9 @@ impl Protection {
                     scheme: Scheme::Pgp,
                 },
             )),
+            // `detect` finds Velociraptor's schemes only; age files are
+            // opened before any zip is read.
+            Scheme::Age => Err(invalid("an age file is not a Velociraptor collection")),
         }
     }
 }
@@ -240,10 +259,12 @@ mod tests {
         let credentials = Credentials {
             password: Some("hunter2".to_owned()),
             private_keys: Some("-----BEGIN RSA PRIVATE KEY-----".to_owned()),
+            age_identities: Some("AGE-SECRET-KEY-1QQQ".to_owned()),
         };
         let printed = format!("{credentials:?}");
         assert!(!printed.contains("hunter2"));
         assert!(!printed.contains("BEGIN"));
+        assert!(!printed.contains("AGE-SECRET-KEY"));
     }
 
     #[test]

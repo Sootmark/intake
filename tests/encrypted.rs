@@ -10,6 +10,9 @@ use std::path::{Path, PathBuf};
 use adapters::evtx::EvtxAdapter;
 use sootmark_intake::{preview, Credentials, HintSource, LayoutKind, Locked, Preview, Scheme};
 
+mod support;
+use support::TempDir;
+
 fn fixture(name: &str) -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("tests/fixtures")
@@ -127,4 +130,62 @@ fn preview_json_names_the_encryption() {
         json.get("encryption").and_then(common::json::Json::as_str),
         Some("x509")
     );
+}
+
+/// A Sootmark collector archive, as the collector writes it, encrypted to
+/// `recipient` with age.
+fn age_archive(dir: &Path, recipient: age::Recipient) -> std::path::PathBuf {
+    let mut zip = zip::Writer::new(Vec::new());
+    zip.add(
+        "C/Users/a/AppData/Roaming/Microsoft/Windows/PowerShell/PSReadLine/ConsoleHost_history.txt",
+        None,
+        &mut b"whoami\n".as_slice(),
+    )
+    .unwrap();
+    zip.add("manifest.jsonl", None, &mut b"".as_slice())
+        .unwrap();
+    zip.add(
+        "outcome.json",
+        None,
+        &mut br#"{"collector":"sootmark-collector","version":"0.2.0","host":"WS-042"}"#.as_slice(),
+    )
+    .unwrap();
+    let mut encryptor = age::Encryptor::new(Vec::new(), &[recipient]).unwrap();
+    std::io::Write::write_all(&mut encryptor, &zip.finish().unwrap()).unwrap();
+    let path = dir.join("WS-042.zip.age");
+    std::fs::write(&path, encryptor.finish().unwrap()).unwrap();
+    path
+}
+
+#[test]
+fn age_encrypted_archives_open_with_their_key() {
+    let dir = TempDir::new().unwrap();
+    let identity = age::Identity::generate();
+    let path = age_archive(dir.path(), identity.to_public());
+    let with = |identities: Option<String>| Credentials {
+        age_identities: identities,
+        ..Credentials::default()
+    };
+
+    let preview = preview(&path, &[&EvtxAdapter], &with(Some(identity.to_string()))).unwrap();
+    assert_eq!(preview.protection, Some(Scheme::Age));
+    assert_eq!(preview.layout.kind, LayoutKind::Sootmark);
+    assert_eq!(preview.layout.host_hint.unwrap().name, "WS-042");
+    assert!(preview
+        .files
+        .iter()
+        .any(|f| f.path.ends_with("ConsoleHost_history.txt")));
+
+    let locked = preview_error(&path, &with(None));
+    assert_eq!(Locked::of(&locked).map(|l| l.scheme), Some(Scheme::Age));
+    let stranger = age::Identity::generate().to_string();
+    let refused = preview_error(&path, &with(Some(stranger)));
+    assert_eq!(refused.kind(), std::io::ErrorKind::PermissionDenied);
+}
+
+fn preview_error(path: &Path, credentials: &Credentials) -> std::io::Error {
+    match preview(path, &[&EvtxAdapter], credentials) {
+        Ok(_) => panic!("opened without the right key"),
+        Err(error) => error,
+    }
 }
