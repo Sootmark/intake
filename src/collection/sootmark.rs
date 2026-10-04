@@ -3,7 +3,7 @@
 //! with its SHA-256 and status, and one per rule that found nothing).
 
 use common::json::{self, Json};
-use common::time::{days_from_civil, Precision, Ts};
+use common::time::Ts;
 
 use super::{CollectionLog, CollectorFiles, Failure, Outcome, PartialFile, RecordedHash};
 use crate::layout::LayoutKind;
@@ -14,8 +14,6 @@ pub(crate) const OUTCOME: &str = "outcome.json";
 pub(crate) const MANIFEST: &str = "manifest.jsonl";
 /// What `outcome.json` names the collector.
 pub(crate) const COLLECTOR: &str = "sootmark-collector";
-
-const TICKS_PER_SECOND: i64 = 10_000_000;
 
 pub(super) fn read(files: &CollectorFiles<'_>) -> CollectionLog {
     let mut log = CollectionLog::new(LayoutKind::Sootmark);
@@ -32,7 +30,7 @@ pub(super) fn read(files: &CollectorFiles<'_>) -> CollectionLog {
     if let Some(outcome) = &outcome {
         let field = |name: &str| outcome.get(name).and_then(Json::as_str);
         log.version = field("version").map(str::to_owned);
-        log.started = field("started").and_then(parse_utc);
+        log.started = field("started").and_then(Ts::parse_iso8601_utc);
         // The collector writes outcome.json last, when the archive is
         // complete.
         log.outcome = Outcome::Completed;
@@ -99,61 +97,5 @@ fn record(log: &mut CollectionLog, line: &Json) {
         other => log
             .gaps
             .push(format!("{MANIFEST}: unknown status '{other}'")),
-    }
-}
-
-/// `2026-10-04T08:15:30.1234567Z`, as the collector writes times.
-fn parse_utc(text: &str) -> Option<Ts> {
-    let text = text.strip_suffix('Z')?;
-    let (date, time) = text.split_once('T')?;
-    let mut date = date.splitn(3, '-').map(str::parse::<i64>);
-    let (year, month, day) = (date.next()?.ok()?, date.next()?.ok()?, date.next()?.ok()?);
-    let (clock, fraction) = time.split_once('.').unwrap_or((time, "0"));
-    let mut clock = clock.splitn(3, ':').map(str::parse::<i64>);
-    let (hour, minute, second) = (
-        clock.next()?.ok()?,
-        clock.next()?.ok()?,
-        clock.next()?.ok()?,
-    );
-    let valid = (1..=12).contains(&month)
-        && (1..=31).contains(&day)
-        && hour < 24
-        && minute < 60
-        && second < 61;
-    if !valid || fraction.len() > 7 || !fraction.bytes().all(|b| b.is_ascii_digit()) {
-        return None;
-    }
-    let fraction_ticks: i64 = format!("{fraction:0<7}").parse().ok()?;
-    let days = days_from_civil(year, month as u32, day as u32);
-    let seconds = days * 86_400 + hour * 3600 + minute * 60 + second;
-    Some(Ts::from_ticks(
-        seconds * TICKS_PER_SECOND + fraction_ticks,
-        Precision::Tick,
-    ))
-}
-
-#[cfg(test)]
-mod tests {
-    use super::parse_utc;
-
-    #[test]
-    fn collector_times() {
-        let ts = parse_utc("2026-10-04T08:15:30.1234567Z").unwrap();
-        assert_eq!(ts.to_iso8601().unwrap(), "2026-10-04T08:15:30.1234567Z");
-        assert_eq!(
-            parse_utc("2026-10-04T08:15:30Z")
-                .unwrap()
-                .to_iso8601()
-                .unwrap(),
-            "2026-10-04T08:15:30.0000000Z"
-        );
-        for bad in [
-            "2026-10-04T08:15:30",
-            "2026-13-04T08:15:30Z",
-            "x",
-            "2026-10-04T08:15:30.12345678Z",
-        ] {
-            assert_eq!(parse_utc(bad), None, "{bad}");
-        }
     }
 }
