@@ -30,6 +30,8 @@ const FAT_FILES: [&str; 4] = [
     "vol2/exfil/payroll_2026-08.csv",
     "vol2/exfil/vendor_master.csv",
 ];
+/// The name each FAT directory's entries are listed under.
+const FAT_DIRECTORY: &str = "$FAT_DIRECTORY";
 /// SHA-256 of the generator's `PAYROLL` content.
 const PAYROLL_SHA256: &str = "ed84d3f9d569e907de906f59b1514fe55fd3475b10a22f081fad2579c1037727";
 const IMAGES: [&str; 4] = [
@@ -67,7 +69,7 @@ fn every_container_yields_the_same_volume() {
         let container = preview.container.as_ref().expect("a container");
         assert_eq!(container.media_size, 1_802_240, "{image}");
         assert_eq!(preview.layout.kind, LayoutKind::DiskImage, "{image}");
-        assert_eq!(preview.total.files, 22, "{image}");
+        assert_eq!(preview.total.files, 25, "{image}");
         assert!(
             container.warnings.is_empty(),
             "{image}: {:?}",
@@ -77,7 +79,7 @@ fn every_container_yields_the_same_volume() {
             .files
             .iter()
             .map(|f| f.path.as_str())
-            .filter(|p| p.starts_with("vol2/"))
+            .filter(|p| p.starts_with("vol2/") && !p.ends_with(FAT_DIRECTORY))
             .collect();
         assert_eq!(fat, FAT_FILES, "{image}: the FAT32 volume's files");
         assert_eq!(
@@ -116,6 +118,47 @@ fn directory_indexes_are_listed_as_collected() {
     };
     assert_eq!((root.path.as_str(), root.size), ("vol1/$I30", 4096));
     assert!(source.head(root, 4).unwrap().starts_with(b"INDX"));
+}
+
+/// Each FAT directory's entries, the root's included, are listed beside
+/// its files, and read as the volume lists them.
+#[test]
+fn fat_directories_are_listed_beside_their_files() {
+    let source = open(&fixture("fin-wks-07.img"), &Credentials::default()).unwrap();
+    let entries = source.entries().unwrap();
+    let directories: Vec<_> = entries
+        .iter()
+        .filter(|e| e.path.ends_with(FAT_DIRECTORY))
+        .collect();
+    let paths: Vec<&str> = directories.iter().map(|e| e.path.as_str()).collect();
+    assert_eq!(
+        paths,
+        [
+            "vol2/$FAT_DIRECTORY",
+            "vol2/System Volume Information/$FAT_DIRECTORY",
+            "vol2/exfil/$FAT_DIRECTORY",
+        ]
+    );
+    let mut exfil = Vec::new();
+    source
+        .with_reader(directories[2], &mut |r| {
+            r.read_to_end(&mut exfil).map(|_| ())
+        })
+        .unwrap();
+    assert_eq!(exfil.len() as u64, directories[2].size);
+    let names: Vec<String> = disk::DirectoryFormat::Fat
+        .entries(&exfil)
+        .into_iter()
+        .map(|e| e.name)
+        .collect();
+    assert_eq!(
+        names,
+        [
+            "payroll_2026-08.csv",
+            "vendor_master.csv",
+            "Q3_forecast_board_pack.zip"
+        ]
+    );
 }
 
 #[test]

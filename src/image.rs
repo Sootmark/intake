@@ -2,8 +2,8 @@
 //!
 //! The image is opened as a disk, its partitions are read, and every NTFS,
 //! FAT and exFAT volume's files (NTFS alternate data streams and directory
-//! indexes included) become source entries, read straight from the image
-//! without extraction.
+//! indexes, FAT and exFAT directories included) become source entries,
+//! read straight from the image without extraction.
 //!
 //! Entry paths follow one rule so layout recognition works unchanged:
 //! - a volume that already holds a KAPE layout (`C/Windows/…`, as in a KAPE
@@ -195,7 +195,7 @@ impl ImageSource {
                 ),
                 Filesystem::Fat | Filesystem::ExFat => Some(
                     FatVolume::open(&mut disk, part.offset, part.length).map(|fat| {
-                        let files = fat.files();
+                        let files = fat_entries(&fat);
                         (FileSystem::Fat(fat), files)
                     }),
                 ),
@@ -306,6 +306,13 @@ fn ntfs_entries<R: Read + Seek>(ntfs: &NtfsVolume, disk: &mut R) -> io::Result<V
     Ok(entries)
 }
 
+/// A FAT or exFAT volume's files, then its directories.
+fn fat_entries(fat: &FatVolume) -> Vec<FileEntry> {
+    let mut entries = fat.files();
+    entries.extend(fat.directories());
+    entries
+}
+
 /// See the module documentation for the rule.
 fn volume_prefix(files: &[FileEntry], slot: usize) -> String {
     let holds_kape_layout = files.iter().any(|f| {
@@ -327,11 +334,15 @@ fn volume_prefix(files: &[FileEntry], slot: usize) -> String {
 
 /// `prefix/a/b/file`, with `:stream` for alternate data streams. NTFS names
 /// can't contain `/`, so the path splits back unambiguously. A directory's
-/// index is `prefix/a/b/$I30`, the way KAPE and Velociraptor collect it.
+/// index is `prefix/a/b/$I30`, the way KAPE and Velociraptor collect it,
+/// and a FAT directory's entries are `prefix/a/b/$FAT_DIRECTORY` (exFAT's
+/// `$EXFAT_DIRECTORY`).
 fn entry_path(prefix: &str, file: &FileEntry) -> String {
     let (components, stream) = match file.kind {
         StreamKind::Data => (file.path.iter().chain(None), file.stream.as_ref()),
-        StreamKind::DirectoryIndex => (file.path.iter().chain(file.stream.as_ref()), None),
+        StreamKind::DirectoryIndex | StreamKind::Directory => {
+            (file.path.iter().chain(file.stream.as_ref()), None)
+        }
     };
     let mut path = String::from(prefix);
     for component in components {
@@ -443,6 +454,19 @@ mod tests {
         entry.path.clear(); // the root's
         assert_eq!(entry_path("C", &entry), "C/$I30");
         assert_eq!(entry_path("", &entry), "$I30");
+    }
+
+    #[test]
+    fn fat_directories_are_named_by_their_format() {
+        let mut entry = file("Photos/2024");
+        entry.stream = Some(disk::DirectoryFormat::ExFat.stream().to_owned());
+        entry.kind = StreamKind::Directory;
+        assert_eq!(
+            entry_path("vol2", &entry),
+            "vol2/Photos/2024/$EXFAT_DIRECTORY"
+        );
+        entry.path.clear(); // the root's
+        assert_eq!(entry_path("vol2", &entry), "vol2/$EXFAT_DIRECTORY");
     }
 
     #[test]
