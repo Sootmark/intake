@@ -1,6 +1,6 @@
 [package]
 name = "sootmark-intake"
-version = "0.10.2"
+version = "0.11.0"
 edition = "2021"
 rust-version = "1.85"
 description = "Evidence intake: read directories, zips, disk images (E01, VHDX, raw) and AD1 logical images, recognise KAPE and Velociraptor collections, detect which parser handles each file."
@@ -21,6 +21,7 @@ zip = { package = "sootmark-zip", version = "0.4.0" }
 # age decryption of the Sootmark collector's archives (RustCrypto inside, D11).
 age = { package = "sootmark-age", version = "0.2.0" }
 ad1 = { package = "sootmark-ad1", version = "0.1.2" }
+vss = { package = "sootmark-vss", version = "0.1.0" }
 # Cryptography is never written in-house (D11): RustCrypto, MIT OR Apache-2.0.
 # RSA-OAEP (SHA-512) unwraps the password of X509-encrypted Velociraptor
 # collections; base64ct is already in rsa's tree (PEM).

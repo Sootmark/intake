@@ -45,6 +45,15 @@ impl Detected {
                 "host_path",
                 Json::from(self.host_path.as_ref().map(ToString::to_string)),
             ),
+            (
+                "shadow_copy",
+                Json::from(
+                    self.host_path
+                        .as_ref()
+                        .and_then(HostPath::shadow_copy)
+                        .map(|index| index as u64),
+                ),
+            ),
             ("size", Json::from(self.size)),
             ("parser", Json::from(self.parser)),
             ("unreadable", Json::from(self.unreadable.clone())),

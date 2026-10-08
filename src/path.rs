@@ -7,12 +7,19 @@ use core::fmt;
 /// Collections store files under their own layouts (`C/Windows/…` for KAPE,
 /// `uploads/auto/C%3A/Windows/…` for Velociraptor). A `HostPath` is the path
 /// the file had on the machine, which is what analysts reason about.
+///
+/// A file of a Volume Shadow Copy has the path it had on the host then, and
+/// the shadow copy it is in ([`HostPath::shadow_copy`]): two paths that
+/// read the same but are in different shadow copies differ.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct HostPath {
     drive: Option<char>,
     components: Vec<String>,
     /// A Unix path (`/etc/passwd`) rather than a Windows one.
     unix: bool,
+    /// The shadow copy of its volume it is in, by index; `None` for the
+    /// live volume.
+    shadow_copy: Option<usize>,
 }
 
 /// Device prefixes Windows uses for raw volume access.
@@ -26,6 +33,7 @@ impl HostPath {
             drive: drive.map(|d| d.to_ascii_uppercase()),
             components,
             unix: false,
+            shadow_copy: None,
         }
     }
 
@@ -36,6 +44,7 @@ impl HostPath {
             drive: None,
             components,
             unix: true,
+            shadow_copy: None,
         }
     }
 
@@ -59,6 +68,21 @@ impl HostPath {
             .map(str::to_owned)
             .collect();
         Self::new(drive, components)
+    }
+
+    /// The same path in shadow copy `index` of its volume.
+    pub(crate) const fn in_shadow_copy(mut self, index: usize) -> Self {
+        self.shadow_copy = Some(index);
+        self
+    }
+
+    /// The Volume Shadow Copy of its volume the path is in, by its index in
+    /// the volume's catalog (0 for the oldest, whose entries are under
+    /// `vss1/`); `None` for the live volume. The path itself reads the same
+    /// either way: it is where the file was on the host.
+    #[must_use]
+    pub const fn shadow_copy(&self) -> Option<usize> {
+        self.shadow_copy
     }
 
     /// The drive letter, when known.

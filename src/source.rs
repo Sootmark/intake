@@ -94,14 +94,43 @@ pub trait Source {
     }
 }
 
+/// How much of the evidence becomes entries, beyond its live files.
+///
+/// Whoever opens the same evidence again to read its entries (an ingest's
+/// workers, after its preview) must pass the same options, or entries the
+/// preview listed may be missing.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct Options {
+    /// The most Volume Shadow Copies read on each NTFS volume of a disk
+    /// image, the newest kept: `None` (the default) reads them all, and
+    /// `Some(0)` none. Each one read adds every file of its volume as it
+    /// was, so a volume with many can multiply the entries; the ones left
+    /// out are still listed in [`Container::shadow_copies`], with a
+    /// warning.
+    pub shadow_copy_limit: Option<usize>,
+}
+
 /// Open `path` as a source: a directory, a zip archive (encrypted
 /// Velociraptor collections included), a disk image (E01, VHDX, raw), an
-/// AD1 logical image, or a single file.
+/// AD1 logical image, or a single file. A disk image's shadow copies are
+/// all read: [`open_with`] chooses.
 ///
 /// # Errors
 /// When `path` can't be read. An encrypted collection opened without the
 /// credentials it needs fails with a [`Locked`](crate::Locked) error.
 pub fn open(path: &Path, credentials: &Credentials) -> io::Result<Box<dyn Source>> {
+    open_with(path, credentials, &Options::default())
+}
+
+/// [`open`], with `options`.
+///
+/// # Errors
+/// As [`open`].
+pub fn open_with(
+    path: &Path,
+    credentials: &Credentials,
+    options: &Options,
+) -> io::Result<Box<dyn Source>> {
     let name = path.file_name().map_or_else(
         || path.display().to_string(),
         |n| n.to_string_lossy().into_owned(),
@@ -129,7 +158,7 @@ pub fn open(path: &Path, credentials: &Credentials) -> io::Result<Box<dyn Source
         return Ok(Box::new(logical::Ad1Source::open(path, &head, name)?));
     }
     if image::is_image(path, &head) {
-        return Ok(Box::new(ImageSource::open(path, &head, name)?));
+        return Ok(Box::new(ImageSource::open(path, &head, name, options)?));
     }
     Ok(Box::new(FileSource {
         path: path.to_owned(),

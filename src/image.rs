@@ -9,6 +9,16 @@
 //!   VHDX) keeps its paths;
 //! - the volume holding `Windows` is the system volume and gets `C/`;
 //! - any other volume gets `vol<slot>/`: no drive letter is guessed.
+//!
+//! An NTFS volume's Volume Shadow Copies are volumes too: each snapshot's
+//! files are under `vss<n>/` and the live volume's prefix (`vss1/C/…` for
+//! the oldest snapshot of the system volume), as `shadow.rs` documents,
+//! and the live volume's paths stay as they are. A volume holding a KAPE
+//! layout is a collection, not a host's volume: its shadow copies aren't
+//! read.
+
+mod handle;
+mod shadow;
 
 use std::cell::RefCell;
 use std::collections::HashMap;
@@ -21,7 +31,10 @@ use disk::{identify, partitions, FatVolume, FileEntry, Filesystem, NtfsVolume, S
 use ewf::Ewf;
 use vhdx::Vhdx;
 
-use crate::source::{Source, SourceEntry};
+use crate::source::{Options, Source, SourceEntry};
+use handle::DiskHandle;
+pub(crate) use shadow::split as split_shadow_copy;
+pub use shadow::ShadowCopy;
 
 const E01_SIGNATURE: &[u8; 8] = b"EVF\x09\x0d\x0a\xff\x00";
 const VHDX_SIGNATURE: &[u8; 8] = b"vhdxfile";
@@ -76,6 +89,9 @@ pub struct Container {
     /// Whether entries are laid out as disk volumes (`C/…`, `vol<n>/…`)
     /// rather than as a collection found inside the image.
     pub volume_layout: bool,
+    /// The Volume Shadow Copies found on the image's NTFS volumes, oldest
+    /// first for each volume.
+    pub shadow_copies: Vec<ShadowCopy>,
     /// Conditions the analyst should know about.
     pub warnings: Vec<String>,
 }
@@ -96,6 +112,10 @@ impl Container {
                         .iter()
                         .map(|(k, v)| (*k, Json::from(v.as_str()))),
                 ),
+            ),
+            (
+                "shadow_copies",
+                Json::Array(self.shadow_copies.iter().map(ShadowCopy::to_json).collect()),
             ),
             ("warnings", Json::from(self.warnings.clone())),
         ])
@@ -133,7 +153,11 @@ impl FileSystem {
     }
 }
 
+/// A volume of the image, live or as a shadow copy kept it.
 struct Volume {
+    /// What its file system is read through: the disk, or the shadow
+    /// copy's view of the volume.
+    reader: RefCell<Box<dyn Disk>>,
     file_system: FileSystem,
     files: Vec<FileEntry>,
     prefix: String,
@@ -141,7 +165,6 @@ struct Volume {
 
 /// A disk image seen as a source of files.
 pub(crate) struct ImageSource {
-    disk: RefCell<Box<dyn Disk>>,
     volumes: Vec<Volume>,
     index: HashMap<String, (usize, usize)>,
     container: Container,
@@ -149,8 +172,14 @@ pub(crate) struct ImageSource {
 }
 
 impl ImageSource {
-    pub(crate) fn open(path: &Path, head: &[u8], name: String) -> io::Result<Self> {
-        let (mut disk, mut container) = open_container(path, head)?;
+    pub(crate) fn open(
+        path: &Path,
+        head: &[u8],
+        name: String,
+        options: &Options,
+    ) -> io::Result<Self> {
+        let (disk, mut container) = open_container(path, head)?;
+        let mut disk = DiskHandle::new(disk, container.media_size);
         let (_, parts) = partitions(&mut disk, container.media_size)?;
         let mut volumes = Vec::new();
         for part in &parts {
@@ -172,11 +201,23 @@ impl ImageSource {
             match opened {
                 Some(Ok((file_system, files))) => {
                     let prefix = volume_prefix(&files, part.slot);
+                    // A KAPE layout's volume is a collection: its shadow
+                    // copies aren't the host's.
+                    let shadow_copies =
+                        if matches!(file_system, FileSystem::Ntfs(_)) && !prefix.is_empty() {
+                            let volume = disk.window(part.offset, part.length);
+                            let limit = options.shadow_copy_limit;
+                            shadow::read(&volume, &prefix, limit, &mut container)
+                        } else {
+                            Vec::new()
+                        };
                     volumes.push(Volume {
+                        reader: RefCell::new(Box::new(disk.clone())),
                         file_system,
                         files,
                         prefix,
                     });
+                    volumes.extend(shadow_copies);
                 }
                 Some(Err(error)) => container.warnings.push(format!(
                     "volume in partition {} unreadable: {error}",
@@ -198,7 +239,6 @@ impl ImageSource {
             }
         }
         Ok(Self {
-            disk: RefCell::new(disk),
             volumes,
             index,
             container,
@@ -215,6 +255,7 @@ fn open_container(path: &Path, head: &[u8]) -> io::Result<(Box<dyn Disk>, Contai
         stored_sha1: None,
         acquisition: Vec::new(),
         volume_layout: false,
+        shadow_copies: Vec::new(),
         warnings: Vec::new(),
     };
     if head.starts_with(E01_SIGNATURE) {
@@ -322,8 +363,8 @@ impl Source for ImageSource {
             .get(&entry.path)
             .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "no such file in the image"))?;
         let volume = &self.volumes[v];
-        let mut disk = self.disk.borrow_mut();
-        volume.file_system.read(&mut disk, &volume.files[file], f)
+        let mut reader = volume.reader.borrow_mut();
+        volume.file_system.read(&mut reader, &volume.files[file], f)
     }
 
     fn container(&self) -> Option<&Container> {

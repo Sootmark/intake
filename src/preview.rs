@@ -13,7 +13,7 @@ use crate::image::Container;
 use crate::layout::{self, Layout};
 use crate::mft_times;
 use crate::protected::{Credentials, Scheme};
-use crate::source;
+use crate::source::{self, Options};
 
 /// Count and size of a group of files.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -110,7 +110,8 @@ impl Preview {
 }
 
 /// Build the preview for the evidence at `path`, opening encrypted
-/// collections with `credentials`.
+/// collections with `credentials`. A disk image's shadow copies are all
+/// read: [`preview_with`] chooses.
 ///
 /// # Errors
 /// When the evidence can't be opened or read; a [`Locked`](crate::Locked)
@@ -120,7 +121,20 @@ pub fn preview(
     adapters: &[&dyn Adapter],
     credentials: &Credentials,
 ) -> io::Result<Preview> {
-    let source = source::open(path, credentials)?;
+    preview_with(path, adapters, credentials, &Options::default())
+}
+
+/// [`preview`], with `options`.
+///
+/// # Errors
+/// As [`preview`].
+pub fn preview_with(
+    path: &Path,
+    adapters: &[&dyn Adapter],
+    credentials: &Credentials,
+    options: &Options,
+) -> io::Result<Preview> {
+    let source = source::open_with(path, credentials, options)?;
     let entries = source.entries()?;
     let layout = layout::recognise(source.as_ref(), &entries);
     let collection_log = collection::read(source.as_ref(), &layout, &entries);

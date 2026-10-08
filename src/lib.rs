@@ -26,10 +26,10 @@ pub use collection::{
     RecordedHash,
 };
 pub use detect::{detect, Detected, PROBE_SIZE};
-pub use image::{Container, ContainerFormat};
+pub use image::{Container, ContainerFormat, ShadowCopy};
 pub use layout::{recognise, HintSource, HostHint, Layout, LayoutKind};
 pub use manifest::{manifest, ManifestEntry};
 pub use path::HostPath;
-pub use preview::{preview, Preview, Tally};
+pub use preview::{preview, preview_with, Preview, Tally};
 pub use protected::{Credentials, Locked, Scheme};
-pub use source::{open, Source, SourceEntry};
+pub use source::{open, open_with, Options, Source, SourceEntry};

@@ -120,6 +120,7 @@ impl Ad1Source {
             stored_sha1: None,
             acquisition,
             volume_layout: prefixes.values().any(|p| !p.is_empty()),
+            shadow_copies: Vec::new(),
             warnings: image.problems.clone(),
         };
         Ok(Self {

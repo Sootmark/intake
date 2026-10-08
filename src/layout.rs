@@ -3,6 +3,7 @@
 
 use common::json::{self, Json};
 
+use crate::image::split_shadow_copy;
 use crate::path::HostPath;
 use crate::source::{Source, SourceEntry};
 
@@ -15,7 +16,8 @@ pub enum LayoutKind {
     /// with URL-encoded path components, plus collection metadata.
     Velociraptor,
     /// The volumes of a disk image: the system volume as `C/…`, others as
-    /// `vol<slot>/…` with no drive letter (letters aren't stored on disk).
+    /// `vol<slot>/…` with no drive letter (letters aren't stored on disk),
+    /// and their shadow copies as `vss<n>/C/…`.
     DiskImage,
     /// Fox-IT's acquire: Windows volumes under `fs/<letter>:/…` (older
     /// versions: the system volume as `sysvol/…`).
@@ -282,14 +284,17 @@ fn kape_host_path(path: &str) -> Option<HostPath> {
     ))
 }
 
-/// `C/…` → `C:\…`; `vol<slot>/…` → `\…` on an unknown drive.
+/// `C/…` → `C:\…`; `vol<slot>/…` → `\…` on an unknown drive; either
+/// under `vss<n>/` → the same path, in that shadow copy.
 fn disk_image_host_path(path: &str) -> Option<HostPath> {
+    let (shadow_copy, path) = split_shadow_copy(path);
     let (volume, rest) = path.split_once('/')?;
     let drive = volume.chars().next().filter(|_| is_drive_folder(volume));
-    Some(HostPath::new(
-        drive,
-        rest.split('/').map(str::to_owned).collect(),
-    ))
+    let host_path = HostPath::new(drive, rest.split('/').map(str::to_owned).collect());
+    Some(match shadow_copy {
+        Some(index) => host_path.in_shadow_copy(index),
+        None => host_path,
+    })
 }
 
 /// acquire: `fs/<letter>:/` (or `fs/<letter>/`) holding a Windows volume,
@@ -525,5 +530,16 @@ mod tests {
         let data = disk_image_host_path("vol2/Shares/report.docx:Zone.Identifier").unwrap();
         assert_eq!(data.drive(), None);
         assert_eq!(data.to_string(), r"\Shares\report.docx:Zone.Identifier");
+        assert_eq!(system.shadow_copy(), None);
+    }
+
+    #[test]
+    fn shadow_copies_keep_the_live_host_path() {
+        let old = disk_image_host_path("vss2/C/Windows/System32/config/SAM").unwrap();
+        assert_eq!(old.to_string(), r"C:\Windows\System32\config\SAM");
+        assert_eq!(old.shadow_copy(), Some(1));
+        let data = disk_image_host_path("vss1/vol2/Shares/report.docx").unwrap();
+        assert_eq!((data.drive(), data.shadow_copy()), (None, Some(0)));
+        assert_eq!(data.to_string(), r"\Shares\report.docx");
     }
 }

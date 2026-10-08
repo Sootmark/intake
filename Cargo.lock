@@ -859,7 +859,7 @@ dependencies = [
 
 [[package]]
 name = "sootmark-intake"
-version = "0.10.2"
+version = "0.11.0"
 dependencies = [
  "base64ct",
  "proptest",
@@ -873,6 +873,7 @@ dependencies = [
  "sootmark-ewf",
  "sootmark-model",
  "sootmark-vhdx",
+ "sootmark-vss",
  "sootmark-zip",
 ]
 
@@ -920,6 +921,15 @@ name = "sootmark-vhdx"
 version = "0.1.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a1201a80769932e8ca4c440634e556cfa620526030288e56c6447acf3b83a7bb"
+dependencies = [
+ "sootmark-common",
+]
+
+[[package]]
+name = "sootmark-vss"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5b1ee15ec77023da63459124c4790de5dda43eefe4def8d9a68e800f4168e0a1"
 dependencies = [
  "sootmark-common",
 ]

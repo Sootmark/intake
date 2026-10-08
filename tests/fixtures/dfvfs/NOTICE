@@ -1,0 +1,12 @@
+vss.raw.gz is dfVFS's VSS test volume, test_data/vss.raw: an 82,771,968-byte
+NTFS volume with two shadow copies taken on 1 May 2021, under the Apache
+License 2.0 (LICENSE, in this directory). Copyright the dfVFS authors.
+
+Source: https://github.com/log2timeline/dfvfs, test_data/vss.raw, at commit
+917cefc9426d6ded2687d2b55164ded25b44fcb7 (a regular file, not Git LFS):
+  https://raw.githubusercontent.com/log2timeline/dfvfs/917cefc9426d6ded2687d2b55164ded25b44fcb7/test_data/vss.raw
+Stored whole, gzip-compressed (gzip -9n), otherwise unmodified.
+
+SHA-256:
+  vss.raw      e633f0be5fb9ee9a07d44ba5223b786012ce89e9f0024f93d743568e6d052f16
+  vss.raw.gz   d9d07a6a5bc184261b8fd361e57d8428b2d6e1381ea28833be9169745d0f97b0
