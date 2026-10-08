@@ -16,6 +16,9 @@ const RCLONE_CONF_SHA256: &str = "8c4dc8c2ac27226bb585cff90ecec13394bd51e792296d
 /// `icat -o 256 fin-wks-07.img 23-128-3 | shasum -a 256`
 const ZONE_IDENTIFIER_SHA256: &str =
     "ca9dfb47c66ad01c49bf8f5841d734da9e5828a6c11a6a5bc0b726bf21e1973a";
+/// `icat -o 256 fin-wks-07.img 5-160-3 | shasum -a 256`: the root
+/// directory's index, the only one outgrowing its record.
+const ROOT_INDEX_SHA256: &str = "5e444227ab26ee2891383af375480c94b8caab77be1f7788e5664fb039cb0e67";
 const RCLONE_CONF: &str = "vol1/Users/svc_backup/AppData/Roaming/rclone/rclone.conf";
 const ZONE_IDENTIFIER: &str = "vol1/Users/svc_backup/Downloads/tools.zip:Zone.Identifier";
 /// The FAT32 `E:` volume's files, as `tests/fixtures/make-samples.py` in
@@ -64,7 +67,7 @@ fn every_container_yields_the_same_volume() {
         let container = preview.container.as_ref().expect("a container");
         assert_eq!(container.media_size, 1_802_240, "{image}");
         assert_eq!(preview.layout.kind, LayoutKind::DiskImage, "{image}");
-        assert_eq!(preview.total.files, 21, "{image}");
+        assert_eq!(preview.total.files, 22, "{image}");
         assert!(
             container.warnings.is_empty(),
             "{image}: {:?}",
@@ -92,7 +95,27 @@ fn every_container_yields_the_same_volume() {
             ZONE_IDENTIFIER_SHA256,
             "{image}"
         );
+        assert_eq!(
+            sha256_of(&fixture(image), "vol1/$I30"),
+            ROOT_INDEX_SHA256,
+            "{image}"
+        );
     }
+}
+
+#[test]
+fn directory_indexes_are_listed_as_collected() {
+    let source = open(&fixture("fin-wks-07.img"), &Credentials::default()).unwrap();
+    let entries = source.entries().unwrap();
+    let indexes: Vec<_> = entries
+        .iter()
+        .filter(|e| e.path.ends_with("/$I30"))
+        .collect();
+    let [root] = indexes.as_slice() else {
+        panic!("only the root's index outgrew its record: {indexes:?}");
+    };
+    assert_eq!((root.path.as_str(), root.size), ("vol1/$I30", 4096));
+    assert!(source.head(root, 4).unwrap().starts_with(b"INDX"));
 }
 
 #[test]

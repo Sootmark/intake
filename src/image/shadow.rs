@@ -19,7 +19,7 @@ use disk::NtfsVolume;
 use vss::Shadows;
 
 use super::handle::DiskHandle;
-use super::{Container, FileSystem, Volume};
+use super::{ntfs_entries, Container, FileSystem, Volume};
 
 /// The prefix of shadow copy entry paths, before the copy's number.
 const PREFIX: &str = "vss";
@@ -162,7 +162,7 @@ fn open(
     );
     let length = view.len();
     let ntfs = NtfsVolume::open(&mut view, 0, length)?;
-    let files = ntfs.files(&mut view)?;
+    let files = ntfs_entries(&ntfs, &mut view)?;
     Ok(Volume {
         reader: RefCell::new(Box::new(view)),
         file_system: FileSystem::Ntfs(ntfs),

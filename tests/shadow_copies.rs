@@ -67,7 +67,7 @@ fn every_shadow_copy_is_a_volume_of_its_own() {
         paths_under(&entries, FIRST),
         paths_under(&entries, SECOND),
     );
-    assert_eq!((live.len(), first.len(), second.len()), (31, 28, 30));
+    assert_eq!((live.len(), first.len(), second.len()), (33, 29, 32));
     assert_eq!(entries.len(), live.len() + first.len() + second.len());
 
     let has = |files: &[&str], name| files.contains(&name);
@@ -95,6 +95,54 @@ fn every_shadow_copy_is_a_volume_of_its_own() {
     );
 }
 
+/// Each directory index outgrowing its record, live and in the snapshots,
+/// as The Sleuth Kit reads it: `icat vss.raw <record>-160-<id>`, through
+/// libvshadow's `vshadowmount` for the snapshots. (`$Extend/$Deleted` has
+/// clusters but declares no bytes: it isn't listed.)
+#[test]
+fn directory_indexes_read_as_icat_reads_them() {
+    let dir = TempDir::new().unwrap();
+    let source = open(&volume(&dir, None), &Credentials::default()).unwrap();
+    let entries = source.entries().unwrap();
+    let indexes: Vec<(&str, String)> = entries
+        .iter()
+        .filter(|e| e.path.ends_with("$I30"))
+        .map(|e| {
+            (
+                e.path.as_str(),
+                common::hex::encode(&source.sha256(e).unwrap()),
+            )
+        })
+        .collect();
+    let expected = [
+        (
+            "vol0/$I30",
+            "a21d13f79aafa596a2cb78ff1fd398c050dd1a845ac99f95e1cff7979924b528",
+        ),
+        (
+            "vol0/System Volume Information/$I30",
+            "3a94c24d9ecb19a994f6497f1a6a1ef967dd9d64f9ca314f0898e30c8bb94f00",
+        ),
+        (
+            "vss1/vol0/$I30",
+            "d4321b7409fd2310d7e46a1860422f8ced370dff2af63513e850e1ec4ca86ed0",
+        ),
+        (
+            "vss2/vol0/$I30",
+            "1c27f084a180748ec4c3e565463633c4247c6f69e817bb0a321d3ca11dcfacb2",
+        ),
+        (
+            "vss2/vol0/System Volume Information/$I30",
+            "c33f302db63768895eebaefd8c8dd755a7a719c16c6a5531e44a6f2200194d55",
+        ),
+    ];
+    let expected: Vec<(&str, String)> = expected
+        .into_iter()
+        .map(|(path, digest)| (path, digest.to_owned()))
+        .collect();
+    assert_eq!(indexes, expected);
+}
+
 #[test]
 fn the_container_lists_each_shadow_copy() {
     let dir = TempDir::new().unwrap();
@@ -107,10 +155,10 @@ fn the_container_lists_each_shadow_copy() {
         format!(
             "[{{\"volume\":\"vol0\",\"index\":0,\"path\":\"vss1/vol0\",\
              \"created\":\"2021-05-01T17:40:03.2230304Z\",\"store_id\":\"{FIRST_STORE}\",\
-             \"entries\":28}},\
+             \"entries\":29}},\
              {{\"volume\":\"vol0\",\"index\":1,\"path\":\"vss2/vol0\",\
              \"created\":\"2021-05-01T17:41:28.2249863Z\",\"store_id\":\"{SECOND_STORE}\",\
-             \"entries\":30}}]"
+             \"entries\":32}}]"
         )
     );
 }
@@ -160,10 +208,10 @@ fn a_limit_reads_only_the_newest() {
     let newest = with_limit(1);
     let entries = newest.entries().unwrap();
     assert!(paths_under(&entries, FIRST).is_empty());
-    assert_eq!(paths_under(&entries, SECOND).len(), 30);
+    assert_eq!(paths_under(&entries, SECOND).len(), 32);
     let container = newest.container().unwrap();
     let read: Vec<Option<u64>> = container.shadow_copies.iter().map(|s| s.entries).collect();
-    assert_eq!(read, [None, Some(30)]);
+    assert_eq!(read, [None, Some(32)]);
     assert_eq!(
         container.warnings,
         ["1 of the 2 shadow copies of volume vol0 not read: only the newest 1 were asked for"]
@@ -172,7 +220,7 @@ fn a_limit_reads_only_the_newest() {
     let none = with_limit(0);
     let entries = none.entries().unwrap();
     assert!(entries.iter().all(|e| e.path.starts_with(LIVE)));
-    assert_eq!(entries.len(), 31);
+    assert_eq!(entries.len(), 33);
     assert_eq!(none.container().unwrap().shadow_copies.len(), 2);
 }
 
@@ -183,7 +231,7 @@ fn damaged_shadow_copies_are_warnings() {
     let dir = TempDir::new().unwrap();
     let source = open(&volume(&dir, Some(30 << 20)), &Credentials::default()).unwrap();
     let entries = source.entries().unwrap();
-    assert_eq!(paths_under(&entries, LIVE).len(), 31);
+    assert_eq!(paths_under(&entries, LIVE).len(), 33);
     let warnings = &source.container().unwrap().warnings;
     assert!(!warnings.is_empty());
     assert!(

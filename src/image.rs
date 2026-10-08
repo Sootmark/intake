@@ -1,8 +1,9 @@
 //! Disk images as evidence sources: E01, VHDX and raw (whole or split).
 //!
 //! The image is opened as a disk, its partitions are read, and every NTFS,
-//! FAT and exFAT volume's files (NTFS alternate data streams included)
-//! become source entries, read straight from the image without extraction.
+//! FAT and exFAT volume's files (NTFS alternate data streams and directory
+//! indexes included) become source entries, read straight from the image
+//! without extraction.
 //!
 //! Entry paths follow one rule so layout recognition works unchanged:
 //! - a volume that already holds a KAPE layout (`C/Windows/…`, as in a KAPE
@@ -27,7 +28,9 @@ use std::io::{self, BufReader, Read, Seek};
 use std::path::Path;
 
 use common::json::Json;
-use disk::{identify, partitions, FatVolume, FileEntry, Filesystem, NtfsVolume, SplitImage};
+use disk::{
+    identify, partitions, FatVolume, FileEntry, Filesystem, NtfsVolume, SplitImage, StreamKind,
+};
 use ewf::Ewf;
 use vhdx::Vhdx;
 
@@ -186,7 +189,7 @@ impl ImageSource {
             let opened = match identify(&mut disk, part)? {
                 Filesystem::Ntfs => Some(
                     NtfsVolume::open(&mut disk, part.offset, part.length).and_then(|ntfs| {
-                        let files = ntfs.files(&mut disk)?;
+                        let files = ntfs_entries(&ntfs, &mut disk)?;
                         Ok((FileSystem::Ntfs(ntfs), files))
                     }),
                 ),
@@ -296,6 +299,13 @@ fn open_container(path: &Path, head: &[u8]) -> io::Result<(Box<dyn Disk>, Contai
     Ok((Box::new(image), container(ContainerFormat::Raw, size)))
 }
 
+/// An NTFS volume's files and streams, then its directories' indexes.
+fn ntfs_entries<R: Read + Seek>(ntfs: &NtfsVolume, disk: &mut R) -> io::Result<Vec<FileEntry>> {
+    let mut entries = ntfs.files(disk)?;
+    entries.extend(ntfs.directory_indexes(disk)?);
+    Ok(entries)
+}
+
 /// See the module documentation for the rule.
 fn volume_prefix(files: &[FileEntry], slot: usize) -> String {
     let holds_kape_layout = files.iter().any(|f| {
@@ -316,16 +326,21 @@ fn volume_prefix(files: &[FileEntry], slot: usize) -> String {
 }
 
 /// `prefix/a/b/file`, with `:stream` for alternate data streams. NTFS names
-/// can't contain `/`, so the path splits back unambiguously.
+/// can't contain `/`, so the path splits back unambiguously. A directory's
+/// index is `prefix/a/b/$I30`, the way KAPE and Velociraptor collect it.
 fn entry_path(prefix: &str, file: &FileEntry) -> String {
+    let (components, stream) = match file.kind {
+        StreamKind::Data => (file.path.iter().chain(None), file.stream.as_ref()),
+        StreamKind::DirectoryIndex => (file.path.iter().chain(file.stream.as_ref()), None),
+    };
     let mut path = String::from(prefix);
-    for component in &file.path {
+    for component in components {
         if !path.is_empty() {
             path.push('/');
         }
         path.push_str(component);
     }
-    if let Some(stream) = &file.stream {
+    if let Some(stream) = stream {
         path.push(':');
         path.push_str(stream);
     }
@@ -381,6 +396,7 @@ mod tests {
             path: path.split('/').map(str::to_owned).collect(),
             record: 0,
             stream: None,
+            kind: StreamKind::Data,
             size: 0,
             times: disk::Times::default(),
         }
@@ -416,6 +432,17 @@ mod tests {
             "C/Users/a/tools.zip:Zone.Identifier"
         );
         assert_eq!(entry_path("", &file("C/x")), "C/x");
+    }
+
+    #[test]
+    fn directory_indexes_are_named_like_collected_ones() {
+        let mut entry = file("Users/a");
+        entry.stream = Some("$I30".to_owned());
+        entry.kind = StreamKind::DirectoryIndex;
+        assert_eq!(entry_path("C", &entry), "C/Users/a/$I30");
+        entry.path.clear(); // the root's
+        assert_eq!(entry_path("C", &entry), "C/$I30");
+        assert_eq!(entry_path("", &entry), "$I30");
     }
 
     #[test]
